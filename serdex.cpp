@@ -19,7 +19,7 @@
 // LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
-#include "serdex.h"
+#include "serdex.hpp"
 #include <iostream>
 using namespace serdex;
 
@@ -139,14 +139,73 @@ value::operator value_type() const {
     return val;
 }
 
-bool value::operator==(const value& other) const {
-    if (other.val.index() != val.index())
-        return false;
-    return std::visit([&other]<typename T>(const T &value) {
-        if constexpr (requires { T {} == value; }) {
-            return value == other.get<T>();
+value::iterator::result value::iterator::operator*() const {
+    return std::visit([this]<typename T>(const T &val) -> result {
+        if constexpr (std::is_same_v<it_a, T>) {
+            return { (size_t)(val - std::get<array>(*owner).values.begin()), *val };
         }
-        return false;
+        if constexpr (std::is_same_v<it_b, T>) {
+            return *val;
+        }
+        if constexpr (std::is_same_v<it_c, T>) {
+            return *val;
+        }
+        assert(0);
+    }, variant);
+}
+
+const value::const_iterator::result value::const_iterator::operator*() const {
+    return std::visit([this]<typename T>(const T &val) -> const result {
+        if constexpr (std::is_same_v<it_a, T>) {
+            return { (size_t)(val - std::get<array>(*owner).values.begin()), *val };
+        }
+        if constexpr (std::is_same_v<it_b, T>) {
+            return *val;
+        }
+        if constexpr (std::is_same_v<it_c, T>) {
+            return *val;
+        }
+        assert(0);
+    }, variant);
+}
+
+value::iterator value::begin() {
+    return std::visit([this]<typename T>(T &value) -> iterator {
+        if constexpr (internal::is_collection<T>::value) {
+            return iterator { value.begin(), &this->val };
+        } else {
+            throw std::logic_error("cannot get iterator of non collection type");
+        }
+    }, val);
+}
+
+value::iterator value::end() {
+    return std::visit([this]<typename T>(T &value) -> iterator {
+        if constexpr (internal::is_collection<T>::value) {
+            return iterator { value.end(), &this->val };
+        } else {
+            throw std::logic_error("cannot get iterator of non collection type");
+        }
+    }, val);
+}
+
+value::const_iterator value::cbegin() const {
+    return std::visit([this]<typename T>(const T &value) -> const_iterator {
+        if constexpr (internal::is_collection<T>::value) {
+            return const_iterator { value.cbegin(), &this->val };
+        } else {
+            throw std::logic_error("cannot get iterator of non collection type");
+        }
+    }, val);
+}
+
+value::const_iterator value::cend() const {
+    return std::visit([this]<typename T>(const T &value) -> const_iterator {
+        if constexpr (internal::is_collection<T>::value) {
+            return const_iterator { value.cend(), &this->val };
+        } else {
+            throw std::logic_error("cannot get iterator of non collection type");
+        }
     }, val);
 }
 
@@ -551,4 +610,15 @@ static std::ostream& print(std::ostream &os, const value &v) {
 
 std::ostream& operator<<(std::ostream &os, const value &v) {
     return print(os, v);
+}
+
+bool serdex::operator==(const value& a, const value& b) {
+    if (a.val.index() != b.val.index())
+        return false;
+    return std::visit([&b]<typename T>(const T &value) {
+        if constexpr (requires { T {} == value; }) {
+            return value == b.get<T>();
+        }
+        return false;
+    }, a.val);
 }

@@ -1,5 +1,5 @@
 # serdex
-serdex is a basic data interchange format with serialization and deserialization programs.
+serdex is a basic data interchange format with serialization and deserialization programs. This library implements serdex using C++20.
 
 # Syntax
 serdex is very similar to JSON5, permitting trailing commas, comments, and allowing unquoted keys.

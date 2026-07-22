@@ -20,8 +20,8 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-#ifndef SERDEX_LIBRARY_H
-#define SERDEX_LIBRARY_H
+#ifndef SERDEX_LIBRARY_HPP
+#define SERDEX_LIBRARY_HPP
 #include <cassert>
 #include <unordered_map>
 #include <vector>
@@ -59,13 +59,32 @@ namespace serdex {
             }
         };
 
-        template <typename T>
-        struct is_collection : std::false_type {};
 
         template <typename K, typename C>
-        struct is_collection<collection<K, C>> : std::true_type {
-            using key_type = K;
-            using stl_type = C;
+        std::true_type is_collection_helper(const collection<K, C> *);
+        std::false_type is_collection_helper(...);
+
+        template <typename K, typename C>
+        std::pair<K, C> collection_types_helper(const collection<K, C> *);
+        std::pair<void, void> collection_types_helper(...);
+
+        template <typename T>
+        struct pair_types {};
+
+        template <typename F, typename S>
+        struct pair_types<std::pair<F, S>> {
+            using first_type = F;
+            using second_type = S;
+        };
+
+        template <typename T>
+        struct collection_types {
+            using key_type = pair_types<decltype(collection_types_helper(std::declval<T*>()))>::first_type;
+            using collection_type = pair_types<decltype(collection_types_helper(std::declval<T*>()))>::second_type;
+        };
+
+        template <typename T>
+        struct is_collection : decltype(is_collection_helper(std::declval<T*>())) {
         };
     }
 
@@ -73,24 +92,40 @@ namespace serdex {
     struct collection {
         C values;
 
-        [[nodiscard]] bool operator==(const collection &other) const {
-            return values == other.values;
+        friend bool operator==(const collection &a, const collection &b) {
+            return a.values == b.values;
         }
-        [[nodiscard]] bool operator==(const C &other) const {
-            return values == other;
+        friend bool operator==(const collection &a, const C &b) {
+            return a == b;
+        }
+
+        C::iterator begin() {
+            return values.begin();
+        }
+
+        C::iterator end() {
+            return values.end();
+        }
+
+        [[nodiscard]] C::const_iterator cbegin() const {
+            return values.cbegin();
+        }
+
+        [[nodiscard]] C::const_iterator cend() const {
+            return values.cend();
         }
 
         [[nodiscard]] size_t size() const {
             return values.size();
         }
 
-        [[nodiscard]] value &at(K i) {
+        [[nodiscard]] value &at(const K& i) {
             return values.at(i);
         }
-        [[nodiscard]] const value &at(K i) const {
+        [[nodiscard]] const value &at(const K& i) const {
             return values.at(i);
         }
-        value &emplace(K i, const value &v) {
+        value &emplace(const K& i, const value &v) {
             return values[i] = v;
         }
         [[nodiscard]] bool contains(const value &value) const {
@@ -99,11 +134,12 @@ namespace serdex {
                 return other == value;
             });
         }
-        [[nodiscard]] bool contains(K key) const {
+        [[nodiscard]] bool contains(const K& key) const {
             if constexpr (std::is_same_v<C, std::vector<value>>) {
                 return key < values.size();
+            } else {
+                return values.contains(key);
             }
-            return values.contains(key);
         }
     };
 
@@ -177,7 +213,7 @@ namespace serdex {
             }
             return get<array>().at(key);
         }
-        value &emplace(const value &v) {
+        value &emplace_back(const value &v) {
             return get<array>().emplace_back(v);
         }
 
@@ -208,7 +244,7 @@ namespace serdex {
         [[nodiscard]] bool contains(size_t key) const {
             return std::visit([key]<typename T>(const T &value){
                 if constexpr (internal::is_collection<T>::value) {
-                    if constexpr (std::is_same_v<size_t, typename internal::is_collection<T>::key_type>) {
+                    if constexpr (std::is_same_v<size_t, typename internal::collection_types<T>::key_type>) {
                         return value.contains(key);
                     } else {
                         return value.contains(std::to_string(key));
@@ -226,25 +262,10 @@ namespace serdex {
             return at(key);
         }
 
-        template <typename T>
-        bool operator==(const T &other) const {
-            return std::visit([&other](const auto &value) {
-                if constexpr (requires { other == value; }) {
-                    return other == value;
-                }
-                return false;
-            }, val);
-        }
+        friend bool operator==(const value &a, const value &b);
 
-        template <typename T>
-        bool operator!=(const T &other) const {
-            return !(other == *this);
-        }
-
-        bool operator==(const value &other) const;
-
-        bool operator!=(const value &other) const {
-            return !(other == *this);
+        friend bool operator!=(const value &a, const value &b) {
+            return !(a == b);
         }
 
         value &operator[](size_t key) {
@@ -254,6 +275,74 @@ namespace serdex {
         const value &operator[](size_t key) const {
             return at(key);
         }
+    public:
+        struct iterator {
+            using it_a = std::vector<value>::iterator;
+            using it_b = object_map_type::iterator;
+            using it_c = std::unordered_map<size_t, value>::iterator;
+            using variant_type = std::variant<it_a, it_b, it_c>;
+            using result = std::pair<index_type, value>;
+            value_type *owner;
+            variant_type variant;
+
+            iterator(variant_type var, value_type *owner) : variant(var), owner(owner) {}
+
+            result operator*() const;
+
+            iterator& operator++() {
+                std::visit([](auto& it) { ++it; }, variant);
+                return *this;
+            }
+
+            iterator operator++(int) {
+                iterator tmp = *this;
+                ++(*this);
+                return tmp;
+            }
+
+            friend bool operator==(const iterator& a, const iterator& b) {
+                return a.variant == b.variant;
+            }
+            friend bool operator!=(const iterator& a, const iterator& b) {
+                return !(a == b);
+            }
+        };
+        struct const_iterator {
+            using it_a = std::vector<value>::const_iterator;
+            using it_b = object_map_type::const_iterator;
+            using it_c = std::unordered_map<size_t, value>::const_iterator;
+            using variant_type = std::variant<it_a, it_b, it_c>;
+            using result = std::pair<index_type, value>;
+            const value_type *owner;
+            variant_type variant;
+
+            const_iterator(variant_type var, const value_type *owner) : variant(var), owner(owner) {}
+
+            const result operator*() const;
+
+            const_iterator& operator++() {
+                std::visit([](auto& it) { ++it; }, variant);
+                return *this;
+            }
+
+            const_iterator operator++(int) {
+                const_iterator tmp = *this;
+                ++(*this);
+                return tmp;
+            }
+
+            friend bool operator==(const const_iterator& a, const const_iterator& b) {
+                return a.variant == b.variant;
+            }
+            friend bool operator!=(const const_iterator& a, const const_iterator& b) {
+                return !(a == b);
+            }
+        };
+
+        iterator begin();
+        iterator end();
+        [[nodiscard]] const_iterator cbegin() const;
+        [[nodiscard]] const_iterator cend() const;
     };
 
     struct instruction {
@@ -339,4 +428,4 @@ namespace serdex {
 
 std::ostream &operator<<(std::ostream &, const serdex::value &);
 
-#endif // SERDEX_LIBRARY_H
+#endif // SERDEX_LIBRARY_HPP

@@ -280,6 +280,7 @@ namespace serdex {
             std::vector<std::string> variable_names = {};
             int t;
             size_t implied_index = 0;
+            bool needs_comma = false;
 
             explicit scope(value_type v) : value(std::move(v)), parent(nullptr) {
                 t = v.index();

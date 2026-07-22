@@ -247,7 +247,7 @@ std::optional<value> parser::parse(std::istream& stream) {
                 assert(m_scope->t == 6);
             cur = pop_scope();
             comma = false;
-        } else if (m_scope && m_scope->implied_index > 0 && collection_parse_stage == 0) {
+        } else if (m_scope && m_scope->needs_comma && collection_parse_stage == 0) {
             if (comma) {
                 assert(c != ',');
                 comma = false;
@@ -340,6 +340,7 @@ std::optional<value> parser::parse(std::istream& stream) {
             if (stream.peek() == ':') {
                 assert(collection_parse_stage == 0);
                 assert(m_scope);
+                get(stream);
                 size_t k = std::get<int64_t>(cur);
                 if (m_scope->t == 6) {
                     m_scope->index = std::to_string(k);
@@ -420,6 +421,7 @@ std::optional<value> parser::parse(std::istream& stream) {
                 m_scope->variable_names.push_back(s);
             }
         }
+        m_scope->needs_comma = true;
         m_scope->index = {};
     }
     skip_ws(stream);
